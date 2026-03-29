@@ -1,9 +1,12 @@
+numpy
 pandas
 geopandas
 shapely
-numpy
 libpysal
 esda
-matplotlib
-networkx
+scikit-learn
 catboost
+matplotlib
+scipy
+pyogrio
+networkx
