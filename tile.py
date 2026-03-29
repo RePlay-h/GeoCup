@@ -1,26 +1,33 @@
 import subprocess
 import os
+import sys
 
-def make_tiles():
-    input_path = "data/processed/frontend.geojson"
-    output_dir = "client/public/data"
-    output_path = os.path.join(output_dir, "buildings.pmtiles")
+INPUT_FILE = "/app/data/processed/frontend.geojson"
+OUTPUT_FILE = "/app/client/public/data/buildings.pmtiles"
 
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+if not os.path.exists(INPUT_FILE):
+    print(f"Файл {INPUT_FILE} не найден! Проверь, что он есть в ./data/processed/")
+    sys.exit(1)
 
-    command = [
-        "tippecanoe",
-        "-o", output_path,
-        "--force",
-        "-zg",
-        "--drop-densest-as-needed",
-        input_path
-    ]
+os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
-    print(f"Начинаю варку тайлов из {input_path}...")
+command = [
+    "tippecanoe",
+    "-o", OUTPUT_FILE,
+    "--minimum-zoom=10",
+    "--maximum-zoom=16",
+    "--base-zoom=14",
+    "--drop-densest-as-needed",
+    "--extend-zooms-if-still-dropping",
+    "--force",
+    "--progress",    # ← запятая обязательна
+    INPUT_FILE
+]
+
+print(f"Начинаю варку тайлов из {INPUT_FILE}...")
+try:
     subprocess.run(command, check=True)
-    print(f" Файл лежит в {output_path}")
-
-if __name__ == "__main__":
-    make_tiles()
+    print(f"Успех! Файл лежит в {OUTPUT_FILE}")
+except subprocess.CalledProcessError as e:
+    print(f"Ошибка при работе Tippecanoe: {e}")
+    sys.exit(1)
