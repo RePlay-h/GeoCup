@@ -10,3 +10,12 @@ services:
       - ./client:/app
       - /app/node_modules
     command: npm run dev -- --host
+
+  data-processor:
+    build:
+      context: .
+      dockerfile: Dockerfile.data
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
