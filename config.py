@@ -1,55 +1,53 @@
-# Пути к данным
-PATH_A = "data/raw/cup_it_example_src_A.csv"
-PATH_B = "data/raw/cup_it_example_src_B.csv"
+from pathlib import Path
 
-# CRS (Coordinate Reference Systems)
+
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
+RAW_DIR = DATA_DIR / "raw"
+PROCESSED_DIR = DATA_DIR / "processed"
+
+PATH_A = RAW_DIR / "cup_it_example_src_A.csv"
+PATH_B = RAW_DIR / "cup_it_example_src_B.csv"
+
 CRS_GEOGRAPHIC = "EPSG:4326"
-CRS_METRIC = 32636
+CRS_METRIC = 32636  # UTM zone for Saint Petersburg
 
-# Физические ограничения для значений
-PHYSICAL_BOUNDS = {
-    "height": (0, 462),
-    "stairs": (1, 87),
-    "avg_floor_height": (2.5, 8),
-    "gkh_floor_count_min": (1, 87),
-    "gkh_floor_count_max": (1, 87),
-    "area_sq_m": (16, 20000),
-}
+CITY_CODE = "spb"
 
-# Городские caps
-CITY_CAPS = {
-    "spb": {
-        "height": 462,
-        "stairs": 87,
-    }
-}
-
-# Параметры очистки
-IQR_K = 1.5
+LISA_DISTANCE_THRESHOLD_M = 200
 LISA_P_THRESHOLD = 0.05
-LISA_THRESHOLD_M = 200
 
-# Параметры сопоставления
-SPATIAL_MATCHING_IOU_THR = 0.3
-SPATIAL_MATCHING_OVERLAP_THR = 0.8
+MATCH_IOU_THRESHOLD = 0.30
+MATCH_OVERLAP_THRESHOLD = 0.80
 
-# Параметры восстановления высоты
-FLOOR_HEIGHT_MIN = 2.8
-FLOOR_HEIGHT_MAX = 3.0
-CONFIDENCE_REVIEW_THR = 0.65
+HEIGHT_REVIEW_CONFIDENCE_THRESHOLD = 0.65
 
-# Параметры плотности застройки
-DENSITY_RADIUS_M = 250
-DENSITY_NEIGHBORS_QUANTILE = 0.90
-DENSITY_COVERAGE_QUANTILE = 0.90
+DENSE_RADIUS_M = 250
+DENSE_NEIGHBORS_Q = 0.90
+DENSE_COVERAGE_Q = 0.90
 
-# Параметры ML-модели
-CATBOOST_ITERATIONS = 500
-CATBOOST_DEPTH = 6
-CATBOOST_LEARNING_RATE = 0.1
+OUTPUT_FILES = {
+    "a_prepared": PROCESSED_DIR / "A_prepared.csv",
+    "b_prepared": PROCESSED_DIR / "B_prepared.csv",
+    "strong_pairs": PROCESSED_DIR / "strong_pairs.csv",
+    "matched_buildings": PROCESSED_DIR / "matched_buildings.csv",
+    "final_results": PROCESSED_DIR / "final_results.csv",
+    "frontend_geojson": PROCESSED_DIR / "frontend.geojson",
+    "geometry_diag_a_before": PROCESSED_DIR / "geometry_diag_a_before.csv",
+    "geometry_diag_a_after": PROCESSED_DIR / "geometry_diag_a_after.csv",
+    "geometry_diag_b_before": PROCESSED_DIR / "geometry_diag_b_before.csv",
+    "geometry_diag_b_after": PROCESSED_DIR / "geometry_diag_b_after.csv",
+    "ml_cv_summary": PROCESSED_DIR / "ml_cv_summary.csv",
+}
 
-# Вывод
-OUTPUT_PROCESSED = "data/processed/"
-OUTPUT_FRONTEND_GEOJSON = "data/processed/frontend.geojson"
-OUTPUT_FINAL_CSV = "data/processed/final_results.csv"
-OUTPUT_COMPONENTS_CSV = "data/processed/matched_buildings.csv"
+FRONTEND_COLUMNS = [
+    "component_id",
+    "match_type",
+    "height_final_full",
+    "confidence_score",
+    "eco_risk_score",
+    "eco_risk_level",
+    "dense_area",
+    "dense_score",
+    "geometry",
+]

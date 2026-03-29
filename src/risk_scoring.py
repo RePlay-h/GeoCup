@@ -1,36 +1,21 @@
-"""
-Расчет плотности застройки и экологического риска (Eco Risk Score)
-"""
-import pandas as pd
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from scipy.spatial import cKDTree
-
-from config import (
-    CRS_METRIC,
-    DENSITY_RADIUS_M,
-    DENSITY_NEIGHBORS_QUANTILE,
-    DENSITY_COVERAGE_QUANTILE,
-)
 
 
 def add_dense_development_features(
-    df: pd.DataFrame,
-    radius_m: float = DENSITY_RADIUS_M,
-    neighbors_q: float = DENSITY_NEIGHBORS_QUANTILE,
-    coverage_q: float = DENSITY_COVERAGE_QUANTILE,
+    gdf_metric: gpd.GeoDataFrame,
+    radius_m: float = 250,
+    neighbors_q: float = 0.90,
+    coverage_q: float = 0.90,
 ) -> gpd.GeoDataFrame:
-    """Считает локальную плотность застройки вокруг каждого объекта."""
-    gdf = gpd.GeoDataFrame(df.copy(), geometry="geometry", crs="EPSG:4326")
-    gdf_m = gdf.to_crs(CRS_METRIC).copy()
+    gdf_metric = gdf_metric.copy()
 
-    gdf_m["centroid"] = gdf_m.geometry.centroid
-    coords = np.column_stack([
-        gdf_m["centroid"].x.values,
-        gdf_m["centroid"].y.values
-    ])
+    centroids = gdf_metric.geometry.centroid
+    coords = np.column_stack([centroids.x.values, centroids.y.values])
 
-    gdf_m["footprint_area_m2"] = gdf_m.geometry.area
+    gdf_metric["footprint_area_m2"] = gdf_metric.geometry.area
 
     tree = cKDTree(coords)
     neighbor_lists = tree.query_ball_point(coords, r=radius_m)
@@ -42,71 +27,54 @@ def add_dense_development_features(
         idxs_wo_self = [j for j in idxs if j != i]
         neighbor_count.append(len(idxs_wo_self))
 
-        if len(idxs_wo_self) > 0:
-            area_sum = gdf_m.iloc[idxs_wo_self]["footprint_area_m2"].sum()
+        if idxs_wo_self:
+            area_sum = gdf_metric.iloc[idxs_wo_self]["footprint_area_m2"].sum()
         else:
             area_sum = 0.0
-
         neighbor_area_sum.append(area_sum)
 
-    gdf_m["neighbors_250m"] = neighbor_count
-    gdf_m["neighbor_footprint_sum_250m"] = neighbor_area_sum
+    gdf_metric["neighbors_250m"] = neighbor_count
+    gdf_metric["neighbor_footprint_sum_250m"] = neighbor_area_sum
 
     circle_area = np.pi * (radius_m ** 2)
-    gdf_m["coverage_ratio_250m"] = gdf_m["neighbor_footprint_sum_250m"] / circle_area
+    gdf_metric["coverage_ratio_250m"] = gdf_metric["neighbor_footprint_sum_250m"] / circle_area
 
-    neigh_thr = gdf_m["neighbors_250m"].quantile(neighbors_q)
-    cov_thr = gdf_m["coverage_ratio_250m"].quantile(coverage_q)
+    neigh_thr = gdf_metric["neighbors_250m"].quantile(neighbors_q)
+    cov_thr = gdf_metric["coverage_ratio_250m"].quantile(coverage_q)
 
-    gdf_m["dense_by_neighbors"] = gdf_m["neighbors_250m"] >= neigh_thr
-    gdf_m["dense_by_coverage"] = gdf_m["coverage_ratio_250m"] >= cov_thr
-
-    gdf_m["dense_area"] = (
-        gdf_m["dense_by_neighbors"] |
-        gdf_m["dense_by_coverage"]
+    gdf_metric["dense_by_neighbors"] = gdf_metric["neighbors_250m"] >= neigh_thr
+    gdf_metric["dense_by_coverage"] = gdf_metric["coverage_ratio_250m"] >= cov_thr
+    gdf_metric["dense_area"] = gdf_metric["dense_by_neighbors"] | gdf_metric["dense_by_coverage"]
+    gdf_metric["dense_score"] = (
+        gdf_metric["neighbors_250m"].rank(pct=True) * 0.5
+        + gdf_metric["coverage_ratio_250m"].rank(pct=True) * 0.5
     )
-
-    gdf_m["dense_score"] = (
-        gdf_m["neighbors_250m"].rank(pct=True) * 0.5 +
-        gdf_m["coverage_ratio_250m"].rank(pct=True) * 0.5
-    )
-
-    print(f"radius_m = {radius_m}")
-    print(f"neighbors threshold = {neigh_thr:.2f}")
-    print(f"coverage threshold = {cov_thr:.4f}")
-    print("dense_area share =", gdf_m["dense_area"].mean())
-
-    return gdf_m
+    return gdf_metric
 
 
-def add_eco_risk_score(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Вычисляет итоговый Eco Risk Score на основе плотности, высоты и сложности."""
-    gdf = df.copy()
+def add_eco_risk_score(gdf_metric: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    gdf_metric = gdf_metric.copy()
 
-    # 1. Площадь здания
-    area = gdf.geometry.area
-    area[gdf.geometry.isna()] = np.nan
-    area[gdf.geometry.is_empty] = np.nan
+    area = gdf_metric.geometry.area
+    area[gdf_metric.geometry.isna()] = np.nan
+    area[gdf_metric.geometry.is_empty] = np.nan
     area[area <= 0] = np.nan
 
     area_median = area.median()
     if pd.isna(area_median):
         area_median = 1.0
 
-    gdf["footprint_area_m2"] = area.fillna(area_median).values
+    gdf_metric["footprint_area_m2"] = area.fillna(area_median).values
+    gdf_metric["dense_score_norm"] = gdf_metric["dense_score"].fillna(0).clip(0, 1)
 
-    # 2. Нормированные компоненты
-    gdf["dense_score_norm"] = gdf["dense_score"].fillna(0).clip(0, 1)
+    height = gdf_metric["height_final_full"].copy()
+    height = height.fillna(height.median() if height.notna().any() else 0)
+    gdf_metric["height_score"] = height.rank(pct=True)
 
-    h = gdf["height_final_full"].copy()
-    h = h.fillna(h.median() if h.notna().any() else 0)
-    gdf["height_score"] = h.rank(pct=True)
+    footprint = gdf_metric["footprint_area_m2"].copy()
+    footprint = footprint.fillna(footprint.median() if footprint.notna().any() else 0)
+    gdf_metric["footprint_score"] = footprint.rank(pct=True)
 
-    a = gdf["footprint_area_m2"].copy()
-    a = a.fillna(a.median() if a.notna().any() else 0)
-    gdf["footprint_score"] = a.rank(pct=True)
-
-    # 3. Сложность городской ткани
     match_risk_map = {
         "1:1": 0.2,
         "1:N": 0.7,
@@ -115,38 +83,49 @@ def add_eco_risk_score(df: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         "A_only": 0.5,
         "B_only": 0.5,
     }
-    gdf["match_risk_score"] = gdf["match_type"].map(match_risk_map).fillna(0.5)
+    gdf_metric["match_risk_score"] = gdf_metric["match_type"].map(match_risk_map).fillna(0.5)
 
-    complexity_raw = gdf["n_a"].fillna(0) + gdf["n_b"].fillna(0)
-    gdf["component_complexity_score"] = complexity_raw.rank(pct=True)
+    complexity_raw = gdf_metric["n_a"].fillna(0) + gdf_metric["n_b"].fillna(0)
+    gdf_metric["component_complexity_score"] = complexity_raw.rank(pct=True)
 
-    gdf["urban_complexity_score"] = (
-        0.7 * gdf["match_risk_score"] +
-        0.3 * gdf["component_complexity_score"]
+    gdf_metric["urban_complexity_score"] = (
+        0.7 * gdf_metric["match_risk_score"]
+        + 0.3 * gdf_metric["component_complexity_score"]
     )
 
-    # 4. Итоговый Eco Risk Score
-    gdf["eco_risk_score"] = (
-        0.45 * gdf["dense_score_norm"] +
-        0.25 * gdf["height_score"] +
-        0.15 * gdf["footprint_score"] +
-        0.15 * gdf["urban_complexity_score"]
+    gdf_metric["eco_risk_score"] = (
+        0.45 * gdf_metric["dense_score_norm"]
+        + 0.25 * gdf_metric["height_score"]
+        + 0.15 * gdf_metric["footprint_score"]
+        + 0.15 * gdf_metric["urban_complexity_score"]
     ).clip(0, 1)
 
-    gdf["eco_risk_score"] = gdf["eco_risk_score"].fillna(gdf["eco_risk_score"].median())
+    gdf_metric["eco_risk_score"] = gdf_metric["eco_risk_score"].fillna(gdf_metric["eco_risk_score"].median())
 
-    # 5. Категории
-    gdf["eco_risk_level"] = pd.cut(
-        gdf["eco_risk_score"],
+    gdf_metric["eco_risk_level"] = pd.cut(
+        gdf_metric["eco_risk_score"],
         bins=[-0.01, 0.33, 0.66, 1.0],
-        labels=["low", "medium", "high"]
+        labels=["low", "medium", "high"],
     )
+    return gdf_metric
 
-    print("geometry type sample:", type(gdf.geometry.dropna().iloc[0]) if gdf.geometry.notna().any() else None)
-    print("crs:", gdf.crs)
-    print("footprint_area_m2 min:", gdf["footprint_area_m2"].min())
-    print("footprint_area_m2 max:", gdf["footprint_area_m2"].max())
-    print("footprint_area_m2 nulls:", gdf["footprint_area_m2"].isna().sum())
-    print("eco_risk_score nulls:", gdf["eco_risk_score"].isna().sum())
 
-    return gdf
+def run_risk_scoring(
+    df: pd.DataFrame,
+    geographic_crs: str = "EPSG:4326",
+    metric_crs: int | str = 32636,
+    radius_m: float = 250,
+    neighbors_q: float = 0.90,
+    coverage_q: float = 0.90,
+) -> gpd.GeoDataFrame:
+    gdf = gpd.GeoDataFrame(df.copy(), geometry="geometry", crs=geographic_crs)
+    gdf_metric = gdf.to_crs(metric_crs).copy()
+
+    gdf_metric = add_dense_development_features(
+        gdf_metric,
+        radius_m=radius_m,
+        neighbors_q=neighbors_q,
+        coverage_q=coverage_q,
+    )
+    gdf_metric = add_eco_risk_score(gdf_metric)
+    return gdf_metric.to_crs(geographic_crs)

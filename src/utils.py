@@ -1,77 +1,75 @@
-"""
-Вспомогательные функции: визуализация, статистика, I/O
-"""
+import re
+from pathlib import Path
+from typing import Iterable, Optional
+
+import numpy as np
 import pandas as pd
-import geopandas as gpd
 
 
-
-def feature_cleaning_summary(A, B):
-    """Печатает сводку по очистке признаков."""
-    summary = {
-        "A_rows": len(A),
-        "B_rows": len(B),
-        "A_area_notna_before": int(A["area_sq_m"].notna().sum()),
-        "A_area_notna_after": int(A["area_sq_m_clean"].notna().sum()),
-        "A_area_small_flag": int(A["area_sq_m_small_flag"].sum()),
-        "A_gkh_floor_mid_notna": int(A["gkh_floor_mid"].notna().sum()),
-        "B_height_notna_before": int(B["height"].notna().sum()),
-        "B_height_notna_after": int(B["height_clean_final"].notna().sum()),
-        "B_stairs_notna_before": int(B["stairs"].notna().sum()),
-        "B_stairs_notna_after": int(B["stairs_clean"].notna().sum()),
-        "B_avg_floor_height_notna_before": int(B["avg_floor_height"].notna().sum()),
-        "B_avg_floor_height_notna_after": int(B["avg_floor_height_clean"].notna().sum()),
-    }
-    return pd.Series(summary)
+def ensure_dir(path: Path | str) -> Path:
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
-def height_cleaning_summary(df):
-    """Печатает сводку по очистке высоты."""
-    summary = {
-        "rows_total": len(df),
-        "height_notna_before": int(df["height"].notna().sum()),
-        "height_phys_bad": int(df["height_phys_bad"].sum()),
-        "height_iqr_bad": int(df["height_iqr_bad"].sum()),
-        "is_island": int(df["is_island"].sum()),
-        "lisa_flag": int(df["lisa_flag"].sum()),
-        "iqr_and_lisa": int((df["height_iqr_bad"] & df["lisa_flag"]).sum()),
-        "height_notna_after": int(df["height_clean_final"].notna().sum()),
-        "height_dropped_total": int(df["height"].notna().sum() - df["height_clean_final"].notna().sum()),
-    }
-    return pd.Series(summary)
+def geometry_to_wkt(value) -> Optional[str]:
+    if value is None or pd.isna(value):
+        return None
+    return value.wkt if hasattr(value, "wkt") else str(value)
 
 
-def save_results(
-    eco_df: gpd.GeoDataFrame,
-    A: gpd.GeoDataFrame,
-    B: gpd.GeoDataFrame,
-    matched_buildings: pd.DataFrame,
-    strong_pairs: pd.DataFrame,
-    output_dir: str = "data/processed/"
-):
-    """Сохраняет результаты в файлы."""
-    # Промежуточные данные A и B
-    A.to_csv(f'{output_dir}A_prepared.csv', index=False)
-    B.to_csv(f'{output_dir}B_prepared.csv', index=False)
+def save_csv(df: pd.DataFrame, path: Path | str, index: bool = False) -> None:
+    out = df.copy()
+    if "geometry" in out.columns:
+        out["geometry"] = out["geometry"].apply(geometry_to_wkt)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(path, index=index)
 
-    # Результаты сопоставления
-    matched_buildings.to_csv(f"{output_dir}matched_buildings.csv", index=False)
-    strong_pairs.to_csv(f"{output_dir}strong_pairs.csv", index=False)
 
-    # Итоговые результаты
-    cols_for_frontend = [
-        "match_type",
-        "height_final_full",
-        "confidence_score",
-        "eco_risk_score",
-        "eco_risk_level",
-        "dense_area",
-        "dense_score",
-        "geometry",
+def norm_text(value) -> str:
+    if pd.isna(value):
+        return ""
+    text = str(value).lower().strip().replace("ё", "е")
+    text = re.sub(r"[^\w\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def extract_house_number(address) -> str:
+    address = norm_text(address)
+    match = re.search(r"\b\d+[а-яa-z]?\b", address)
+    return match.group(0) if match else ""
+
+
+def safe_mean(values: Iterable[float]) -> float:
+    cleaned = [x for x in values if pd.notna(x)]
+    if not cleaned:
+        return np.nan
+    return float(np.mean(cleaned))
+
+
+def weighted_mean(values: Iterable[float], weights: Iterable[float]) -> float:
+    pairs = [
+        (value, weight)
+        for value, weight in zip(values, weights)
+        if pd.notna(value) and pd.notna(weight) and weight > 0
     ]
+    if not pairs:
+        return np.nan
+    vals = np.array([value for value, _ in pairs], dtype=float)
+    wts = np.array([weight for _, weight in pairs], dtype=float)
+    return float(np.average(vals, weights=wts))
 
-    eco_df_export = eco_df[cols_for_frontend].to_crs(epsg=4326)
-    eco_df_export.to_file(f"{output_dir}frontend.geojson", driver="GeoJSON")
-    eco_df.to_csv(f'{output_dir}final_results.csv', index=False)
 
-    print(f"Results saved to {output_dir}")
+def first_notna(series: pd.Series):
+    series = series.dropna()
+    if len(series) == 0:
+        return np.nan
+    return series.iloc[0]
+
+
+def mean_notna(series: pd.Series) -> float:
+    series = series.dropna()
+    if len(series) == 0:
+        return np.nan
+    return float(series.mean())

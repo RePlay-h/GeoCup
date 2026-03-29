@@ -2,11 +2,11 @@ numpy
 pandas
 geopandas
 shapely
+networkx
+scipy
+scikit-learn
 libpysal
 esda
-scikit-learn
 catboost
-matplotlib
-scipy
+lightgbm
 pyogrio
-networkx

@@ -1,18 +1,12 @@
-"""
-Геометрический QA: проверка и исправление геометрии
-"""
-import pandas as pd
 import geopandas as gpd
-import numpy as np
+import pandas as pd
 from shapely import is_valid, is_valid_reason, make_valid
-from shapely.geometry import GeometryCollection, Polygon, MultiPolygon
+from shapely.geometry import MultiPolygon, Polygon
 from shapely.geometry.polygon import orient
-
-from config import CRS_METRIC
 
 
 def polygon_has_wrong_orientation(geom) -> bool:
-    """Soft QA-check: exterior должен быть CCW, holes — CW."""
+    """Soft QA: exterior ring must be CCW, holes must be CW."""
     if geom is None or geom.is_empty:
         return False
 
@@ -24,41 +18,35 @@ def polygon_has_wrong_orientation(geom) -> bool:
     if geom.geom_type == "Polygon":
         return check_polygon(geom)
     if geom.geom_type == "MultiPolygon":
-        return any(check_polygon(p) for p in geom.geoms)
+        return any(check_polygon(poly) for poly in geom.geoms)
     return False
 
 
 def normalize_orientation(geom):
-    """Приводит полигоны к одной конвенции: exterior CCW, holes CW."""
     if geom is None or geom.is_empty:
         return geom
-
     if geom.geom_type == "Polygon":
         return orient(geom, sign=1.0)
     if geom.geom_type == "MultiPolygon":
-        return MultiPolygon([orient(p, sign=1.0) for p in geom.geoms])
-
+        return MultiPolygon([orient(poly, sign=1.0) for poly in geom.geoms])
     return geom
 
 
-def geometry_diagnostics(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
-    """Сводная диагностика геометрии по каждому объекту."""
+def geometry_diagnostics(gdf: gpd.GeoDataFrame, metric_crs: int | str) -> pd.DataFrame:
     geom = gdf.geometry
     report = pd.DataFrame(index=gdf.index)
 
     report["is_missing"] = geom.isna()
-    report["is_empty"] = geom.apply(lambda x: getattr(x, "is_empty", False))
-    report["is_valid"] = geom.apply(lambda x: False if x is None else is_valid(x))
-    report["valid_reason"] = geom.apply(lambda x: None if x is None else is_valid_reason(x))
-    report["geom_type"] = geom.apply(lambda x: None if x is None else x.geom_type)
+    report["is_empty"] = geom.apply(lambda value: getattr(value, "is_empty", False))
+    report["is_valid"] = geom.apply(lambda value: False if value is None else is_valid(value))
+    report["valid_reason"] = geom.apply(lambda value: None if value is None else is_valid_reason(value))
+    report["geom_type"] = geom.apply(lambda value: None if value is None else value.geom_type)
 
-    # Площадь считаем только в метрической CRS
-    gdf_m = gdf.to_crs(CRS_METRIC)
+    gdf_m = gdf.to_crs(metric_crs)
     report["area_m2"] = gdf_m.area
     report["zero_area"] = (~report["is_empty"]) & (report["area_m2"] <= 1e-9)
-
     report["wrong_ring_orientation"] = geom.apply(
-        lambda x: False if x is None else polygon_has_wrong_orientation(x)
+        lambda value: False if value is None else polygon_has_wrong_orientation(value)
     )
 
     report["needs_attention"] = (
@@ -67,12 +55,10 @@ def geometry_diagnostics(gdf: gpd.GeoDataFrame) -> pd.DataFrame:
         | (~report["is_valid"])
         | report["zero_area"]
     )
-
     return report
 
 
 def extract_polygonal(geom):
-    """После make_valid оставляем только полигональные части."""
     if geom is None or geom.is_empty:
         return geom
 
@@ -80,31 +66,30 @@ def extract_polygonal(geom):
         return geom
 
     if geom.geom_type == "GeometryCollection":
-        polys = [g for g in geom.geoms if g.geom_type in ("Polygon", "MultiPolygon")]
-        if len(polys) == 0:
+        polygons = [g for g in geom.geoms if g.geom_type in ("Polygon", "MultiPolygon")]
+        if not polygons:
             return None
-        if len(polys) == 1:
-            return polys[0]
+        if len(polygons) == 1:
+            return polygons[0]
 
         flat = []
-        for g in polys:
-            if g.geom_type == "Polygon":
-                flat.append(g)
+        for geometry in polygons:
+            if geometry.geom_type == "Polygon":
+                flat.append(geometry)
             else:
-                flat.extend(list(g.geoms))
+                flat.extend(list(geometry.geoms))
         return MultiPolygon(flat)
 
     return None
 
 
 def repair_geometry(geom):
-    """Точечно исправляет только невалидные геометрии."""
     if geom is None or geom.is_empty:
         return geom
 
     fixed = geom
     if not is_valid(geom):
-        fixed = make_valid(geom, method="structure")
+        fixed = make_valid(geom)
 
     fixed = extract_polygonal(fixed)
     fixed = normalize_orientation(fixed)
@@ -112,7 +97,6 @@ def repair_geometry(geom):
 
 
 def repair_gdf(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Создаёт исправленную версию GeoDataFrame, не теряя оригинальную геометрию."""
     out = gdf.copy()
     out["geometry_original"] = out.geometry
     out["geometry"] = out.geometry.apply(repair_geometry)
@@ -120,41 +104,43 @@ def repair_gdf(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 
 def coverage_checks(gdf: gpd.GeoDataFrame, gap_width: float = 0.0):
-    """Проверка coverage-проблем: gaps и edge-matching между соседними полигонами."""
     gs = gdf.geometry
-    is_cov_valid = gs.is_valid_coverage(gap_width=gap_width)
-    invalid_edges = gs.invalid_coverage_edges(gap_width=gap_width)
-    return is_cov_valid, invalid_edges
+    if not hasattr(gs, "is_valid_coverage") or not hasattr(gs, "invalid_coverage_edges"):
+        return None, None
+    return gs.is_valid_coverage(gap_width=gap_width), gs.invalid_coverage_edges(gap_width=gap_width)
 
 
-def run_topology_qa(gdf: gpd.GeoDataFrame, name: str, metric_crs: int = CRS_METRIC):
-    """Печатает краткую QA-сводку до и после возможного ремонта геометрии."""
+def run_topology_qa(
+    gdf: gpd.GeoDataFrame,
+    name: str,
+    metric_crs: int | str,
+) -> tuple[gpd.GeoDataFrame, pd.DataFrame, pd.DataFrame, object]:
     print(f"\n=== {name}: BEFORE REPAIR ===")
-    diag_before = geometry_diagnostics(gdf)
+    diag_before = geometry_diagnostics(gdf, metric_crs=metric_crs)
     print("rows:", len(gdf))
     print("invalid:", int((~diag_before["is_valid"]).sum()))
     print("empty:", int(diag_before["is_empty"].sum()))
     print("zero_area:", int(diag_before["zero_area"].sum()))
     print("wrong_orientation:", int(diag_before["wrong_ring_orientation"].sum()))
-    print(diag_before["valid_reason"].value_counts(dropna=False).head(10))
 
     fixed = repair_gdf(gdf)
 
     print(f"\n=== {name}: AFTER REPAIR ===")
-    diag_after = geometry_diagnostics(fixed)
+    diag_after = geometry_diagnostics(fixed, metric_crs=metric_crs)
     print("invalid:", int((~diag_after["is_valid"]).sum()))
     print("empty:", int(diag_after["is_empty"].sum()))
     print("zero_area:", int(diag_after["zero_area"].sum()))
     print("wrong_orientation:", int(diag_after["wrong_ring_orientation"].sum()))
 
-    fixed_m = fixed.to_crs(metric_crs)
+    bad_edges = None
     try:
+        fixed_m = fixed.to_crs(metric_crs)
         cov_ok, bad_edges = coverage_checks(fixed_m, gap_width=0.2)
-        bad_count = int((~bad_edges.is_empty).sum())
-        print("coverage_valid:", cov_ok)
-        print("coverage_problem_polygons:", bad_count)
-    except Exception as e:
-        print("coverage check skipped:", e)
-        bad_edges = None
+        if cov_ok is not None:
+            bad_count = int((~bad_edges.is_empty).sum()) if bad_edges is not None else 0
+            print("coverage_valid:", cov_ok)
+            print("coverage_problem_polygons:", bad_count)
+    except Exception as exc:
+        print("coverage check skipped:", exc)
 
     return fixed, diag_before, diag_after, bad_edges

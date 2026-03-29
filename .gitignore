@@ -4,4 +4,4 @@ catboost_info
 __pycache__
 env
 .idea/
-
+client/public/data
