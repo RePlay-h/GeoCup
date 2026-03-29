@@ -1,7 +1,3 @@
-"""
-Константы и конфигурация проекта CL Cup IT 2026
-"""
-
 # Пути к данным
 PATH_A = "data/raw/cup_it_example_src_A.csv"
 PATH_B = "data/raw/cup_it_example_src_B.csv"
@@ -23,8 +19,8 @@ PHYSICAL_BOUNDS = {
 # Городские caps
 CITY_CAPS = {
     "spb": {
-        "height": 200,
-        "stairs": 40,
+        "height": 462,
+        "stairs": 87,
     }
 }
 

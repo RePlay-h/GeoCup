@@ -186,7 +186,7 @@ def add_height_clean_final(df):
 
     df.loc[df["height_phys_bad"], "height_clean_final"] = np.nan
     df.loc[df["height_iqr_bad"] & df["lisa_flag"], "height_clean_final"] = np.nan
-    df.loc[df["height_clean_final"] > 200, "height_clean_final"] = np.nan
+    df.loc[df["height_clean_final"] > CITY_CAPS['spb']["height"], "height_clean_final"] = np.nan
 
     return df
 
@@ -198,7 +198,7 @@ def add_height_drop_reason(df):
 
     df.loc[df["height_phys_bad"], "height_drop_reason"] = "physical_bounds"
     df.loc[df["height_iqr_bad"] & df["lisa_flag"], "height_drop_reason"] = "iqr_and_lisa"
-    df.loc[df["height"] > 200, "height_drop_reason"] = "city_cap"
+    df.loc[df["height"] > CITY_CAPS['spb']["height"], "height_drop_reason"] = "city_cap"
 
     return df
 
