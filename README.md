@@ -170,7 +170,7 @@ cd GeoCup
 ```
 ### 3. 
 ```
-mkdir data/raw
+mkdir -p data/raw
 ```
 ### 4. Поместите файлы cup_it_example_src_A.csv и cup_it_example_src_B.csv в папку data/raw
 ### 5. Генерация данных (Data Pipeline)
