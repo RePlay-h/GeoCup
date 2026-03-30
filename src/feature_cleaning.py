@@ -18,7 +18,7 @@ PHYSICAL_BOUNDS = {
     "avg_floor_height": (2.5, 8),
     "gkh_floor_count_min": (1, 87),
     "gkh_floor_count_max": (1, 87),
-    "area_sq_m": (16, 20000),
+    "area_sq_m": (30, 20000),
 }
 
 CITY_CAPS = {
