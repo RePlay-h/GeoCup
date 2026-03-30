@@ -188,7 +188,7 @@ docker compose run --rm tile-generator
 Запустите все сервисы проекта, включая веб-интерфейс, в фоновом режиме.
 
 ```
-docker compose up -d
+docker compose up -d frontend
 ```
 
 ### 6. Доступ к приложению

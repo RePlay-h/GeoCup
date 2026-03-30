@@ -10,3 +10,4 @@ esda
 catboost
 lightgbm
 pyogrio
+osgeo
