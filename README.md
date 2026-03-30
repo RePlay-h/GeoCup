@@ -168,16 +168,19 @@
 git clone https://github.com/RePlay-h/GeoCup.git
 cd GeoCup
 ```
-
-### 3. Поместите файлы cup_it_example_src_A.csv и cup_it_example_src_B.csv в папку data/raw
-### 4. Генерация данных (Data Pipeline)
+### 3. 
+```
+mkdir data/raw
+```
+### 4. Поместите файлы cup_it_example_src_A.csv и cup_it_example_src_B.csv в папку data/raw
+### 5. Генерация данных (Data Pipeline)
 Запустите контейнер для обработки сырых геопространственных данных. Этот шаг подготавливает данные для дальнейшей визуализации.
 
 ```
 docker compose run --rm data-pipeline
 ```
 
-### 5. Сборка векторных тайлов (PMTiles)
+### 6. Сборка векторных тайлов (PMTiles)
 
 После генерации данных необходимо создать слой векторных тайлов в формате PMTiles, который будет использоваться для отображения на карте.
 
@@ -185,7 +188,7 @@ docker compose run --rm data-pipeline
 docker compose run --rm tile-generator
 ```
 
-### 6. Запуск веб-интерфейса
+### 7. Запуск веб-интерфейса
 
 Запустите все сервисы проекта, включая веб-интерфейс, в фоновом режиме.
 
@@ -193,7 +196,7 @@ docker compose run --rm tile-generator
 docker compose up -d frontend
 ```
 
-### 7. Доступ к приложению
+### 8. Доступ к приложению
 
 Откройте ваш веб-браузер и перейдите по следующему адресу для доступа к приложению:
 
